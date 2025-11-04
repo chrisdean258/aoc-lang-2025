@@ -58,15 +58,16 @@ impl<'a> Lexer<'a> {
     }
 
     fn lex_number_with_radix(unlexed: &str, radix: u32) -> (usize, TokenKind) {
-        let len = unlexed
-            .find(|c: char| !c.is_digit(radix))
-            .unwrap_or(unlexed.len());
+        let num_digits = |unlexed: &str| {
+            unlexed
+                .find(|c: char| !c.is_digit(radix))
+                .unwrap_or(unlexed.len())
+        };
+        let len = num_digits(unlexed);
         if unlexed[len..].starts_with('.') {
             let unlexed = &unlexed[len + 1..];
-            if unlexed.starts_with(|c: char| c.is_digit(radix)) {
-                let len2 = unlexed
-                    .find(|c: char| !c.is_digit(radix))
-                    .unwrap_or(unlexed.len());
+            let len2 = num_digits(unlexed);
+            if len2 > 0 {
                 return (len + len2 + 1, TokenKind::Float);
             }
         }
@@ -84,7 +85,7 @@ impl Iterator for Lexer<'_> {
         let unlexed = &self.src[self.offset..];
         let mut chars = unlexed.chars();
         let c = chars.next()?;
-        let (l, t) = match c {
+        let (len, tk) = match c {
             'a'..='z' | 'A'..='Z' | '_' => {
                 let len = unlexed
                     .find(|c: char| !c.is_alphanumeric() && c != '_')
@@ -101,8 +102,8 @@ impl Iterator for Lexer<'_> {
             _ => return None,
         };
 
-        let rv = Token::new(self.offset, t);
-        self.offset += l;
+        let rv = Token::new(self.offset, tk);
+        self.offset += len;
         Some(Ok(rv))
     }
 }
