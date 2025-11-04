@@ -9,12 +9,7 @@ pub struct SrcLocation {
 }
 
 #[must_use]
-pub fn resolve(
-    loc: SrcOffset,
-    filename: String,
-    src: String,
-    _newlines: Vec<usize>,
-) -> SrcLocation {
+pub const fn resolve(loc: SrcOffset, filename: String, src: String) -> SrcLocation {
     SrcLocation {
         src,
         filename,

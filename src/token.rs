@@ -2,6 +2,10 @@ use crate::location::SrcOffset;
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum TokenKind {
     Identifier,
+    Plus,
+    Minus,
+    Integer,
+    Float,
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]

@@ -4,7 +4,7 @@ pub mod location;
 pub mod token;
 
 fn main() {
-    let lexer = lex::Lexer::new("test");
+    let lexer = lex::Lexer::new("test", "test");
     for token in lexer {
         println!("{token:?}");
     }

@@ -2,7 +2,9 @@ use crate::location::SrcLocation;
 
 #[derive(Debug, Clone)]
 pub enum LexError {
-    UnexpectedChar(char, SrcLocation),
+    UnexpectedChar(SrcLocation, char),
+    InvalidIntegerDigit(SrcLocation, char, u32),
+    UnexpectedEOF(SrcLocation, &'static str),
 }
 
 #[derive(Debug, Clone)]
@@ -13,7 +15,13 @@ pub enum Error {
 impl std::fmt::Display for LexError {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
-            Self::UnexpectedChar(c, l) => write!(f, "{l}: Unexpected character '{c}'"),
+            Self::UnexpectedChar(l, c) => write!(f, "{l}: Unexpected character '{c}'"),
+            Self::InvalidIntegerDigit(l, c, r) => {
+                write!(f, "{l}: Expected digit with radix {r}. Found '{c}'")
+            }
+            Self::UnexpectedEOF(l, c) => {
+                write!(f, "{l}: Unexpected EOD when {c}")
+            }
         }
     }
 }
