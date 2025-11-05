@@ -1,13 +1,27 @@
 #![allow(dead_code)]
-use crate::error::LexError;
-use crate::location;
-use crate::token::{Token, TokenKind};
+use crate::{
+    location,
+    location::SrcLocation,
+    token::{Token, TokenKind},
+};
+use thiserror::Error;
 
 #[derive(Debug, Clone)]
 pub struct Lexer<'a> {
     filename: &'a str,
     src: &'a str,
     offset: usize,
+    error: bool,
+}
+
+#[derive(Debug, Clone, Error)]
+pub enum Error {
+    #[error("{0}: Unexpected character '{1}'")]
+    UnexpectedChar(SrcLocation, char),
+    #[error("{0}: Expected digit with radix {1} found '{2}'")]
+    InvalidIntegerDigit(SrcLocation, char, u32),
+    #[error("{0}: Unexpected EOF when {1}")]
+    UnexpectedEOF(SrcLocation, &'static str),
 }
 
 impl<'a> Lexer<'a> {
@@ -17,10 +31,11 @@ impl<'a> Lexer<'a> {
             src,
             filename,
             offset: 0,
+            error: false,
         }
     }
 
-    fn lex_number(&self) -> Result<(usize, TokenKind), LexError> {
+    fn lex_number(&self) -> Result<(usize, TokenKind), Error> {
         let unlexed = &self.src[self.offset..];
         let mut chars = unlexed.chars();
         let _c = chars
@@ -39,16 +54,16 @@ impl<'a> Lexer<'a> {
         } else {
             return Ok((1, TokenKind::Integer));
         };
-        let Some(is_digit) = chars.next().map(|c| c.is_digit(radix)) else {
-            return Err(LexError::UnexpectedEOF(
+        let Some(poss_digit) = chars.next() else {
+            return Err(Error::UnexpectedEOF(
                 location::resolve(self.offset + 2, self.filename.into(), self.src.into()),
                 "lexing number",
             ));
         };
-        if !is_digit {
-            return Err(LexError::InvalidIntegerDigit(
-                location::resolve(self.offset, self.filename.into(), self.src.into()),
-                c,
+        if !poss_digit.is_digit(radix) {
+            return Err(Error::InvalidIntegerDigit(
+                location::resolve(self.offset + 2, self.filename.into(), self.src.into()),
+                poss_digit,
                 radix,
             ));
         }
@@ -73,11 +88,8 @@ impl<'a> Lexer<'a> {
         }
         (len, TokenKind::Integer)
     }
-}
 
-impl Iterator for Lexer<'_> {
-    type Item = Result<Token, LexError>;
-    fn next(&mut self) -> Option<Self::Item> {
+    fn lex_single_token(&mut self) -> Option<Result<Token, Error>> {
         let unlexed = &self.src[self.offset..];
         //Skip Leading whitespace
         let ws_len = unlexed.find(|c: char| !c.is_whitespace())?;
@@ -88,7 +100,7 @@ impl Iterator for Lexer<'_> {
         let (len, tk) = match c {
             'a'..='z' | 'A'..='Z' | '_' => {
                 let len = unlexed
-                    .find(|c: char| !c.is_alphanumeric() && c != '_')
+                    .find(|c: char| !c.is_alphanumeric() && c != '_' && c != '\'')
                     .unwrap_or(unlexed.len());
                 (len, TokenKind::Identifier)
             }
@@ -105,6 +117,18 @@ impl Iterator for Lexer<'_> {
         let rv = Token::new(self.offset, tk);
         self.offset += len;
         Some(Ok(rv))
+    }
+}
+
+impl Iterator for Lexer<'_> {
+    type Item = Result<Token, Error>;
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.error {
+            return None;
+        }
+        let val = self.lex_single_token();
+        self.error = matches!(val, Some(Err(_)));
+        val
     }
 }
 
@@ -127,6 +151,20 @@ mod tests {
             vec![
                 Token::new(0, TokenKind::Identifier),
                 Token::new(6, TokenKind::Identifier)
+            ],
+            tokens
+        );
+    }
+
+    #[test]
+    fn ids_tick() {
+        let lexer = Lexer::new("test", "hello hello' hello");
+        let tokens = lexer.collect::<Result<Vec<_>, _>>().expect("Lexing Error");
+        assert_eq!(
+            vec![
+                Token::new(0, TokenKind::Identifier),
+                Token::new(6, TokenKind::Identifier),
+                Token::new(13, TokenKind::Identifier)
             ],
             tokens
         );
@@ -178,5 +216,29 @@ mod tests {
             ],
             tokens
         );
+    }
+
+    #[test]
+    fn bad_hex() {
+        let lexer = Lexer::new("test", "0xm");
+        let err = lexer
+            .collect::<Result<Vec<_>, _>>()
+            .expect_err("We lexed 0xm?");
+        assert!(matches!(
+            err,
+            Error::InvalidIntegerDigit(SrcLocation { .. }, 'm', 16)
+        ));
+    }
+
+    #[test]
+    fn hex_eof() {
+        let lexer = Lexer::new("test", "0x");
+        let err = lexer
+            .collect::<Result<Vec<_>, _>>()
+            .expect_err("We lexed 0xm?");
+        assert!(matches!(
+            err,
+            Error::UnexpectedEOF(SrcLocation { .. }, "lexing number")
+        ));
     }
 }

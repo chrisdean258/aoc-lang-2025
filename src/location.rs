@@ -2,10 +2,10 @@ pub type SrcOffset = usize;
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct SrcLocation {
-    src: String,
-    filename: String,
-    line: usize,
-    col: usize,
+    pub src: String,
+    pub filename: String,
+    pub line: usize,
+    pub col: usize,
 }
 
 #[must_use]
