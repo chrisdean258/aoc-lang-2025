@@ -4,6 +4,8 @@ pub enum TokenKind {
     Identifier,
     Plus,
     Minus,
+    Star,
+    Slash,
     Integer,
     Float,
 }

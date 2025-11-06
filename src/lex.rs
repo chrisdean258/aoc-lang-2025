@@ -4,11 +4,12 @@ use crate::{
     location::SrcLocation,
     token::{Token, TokenKind},
 };
+use std::path::Path;
 use thiserror::Error;
 
 #[derive(Debug, Clone)]
-pub struct Lexer<'a> {
-    filename: &'a str,
+pub struct Lexer<'a, P: AsRef<Path>> {
+    filename: P,
     src: &'a str,
     offset: usize,
     error: bool,
@@ -24,9 +25,9 @@ pub enum Error {
     UnexpectedEOF(SrcLocation, &'static str),
 }
 
-impl<'a> Lexer<'a> {
+impl<'a, P: AsRef<Path>> Lexer<'a, P> {
     #[must_use]
-    pub const fn new(filename: &'a str, src: &'a str) -> Self {
+    pub const fn new(filename: P, src: &'a str) -> Self {
         Self {
             src,
             filename,
@@ -56,13 +57,21 @@ impl<'a> Lexer<'a> {
         };
         let Some(poss_digit) = chars.next() else {
             return Err(Error::UnexpectedEOF(
-                location::resolve(self.offset + 2, self.filename.into(), self.src.into()),
+                location::resolve(
+                    self.offset + 2,
+                    self.filename.as_ref().to_string_lossy().into(),
+                    self.src.into(),
+                ),
                 "lexing number",
             ));
         };
         if !poss_digit.is_digit(radix) {
             return Err(Error::InvalidIntegerDigit(
-                location::resolve(self.offset + 2, self.filename.into(), self.src.into()),
+                location::resolve(
+                    self.offset + 2,
+                    self.filename.as_ref().to_string_lossy().into(),
+                    self.src.into(),
+                ),
                 poss_digit,
                 radix,
             ));
@@ -105,7 +114,9 @@ impl<'a> Lexer<'a> {
                 (len, TokenKind::Identifier)
             }
             '+' => (1, TokenKind::Plus),
+            '*' => (1, TokenKind::Star),
             '-' => (1, TokenKind::Minus),
+            '/' => (1, TokenKind::Slash),
             '1'..='9' => Self::lex_number_with_radix(unlexed, 10),
             '0' => match self.lex_number() {
                 Ok(v) => v,
@@ -120,7 +131,7 @@ impl<'a> Lexer<'a> {
     }
 }
 
-impl Iterator for Lexer<'_> {
+impl<P: AsRef<Path>> Iterator for Lexer<'_, P> {
     type Item = Result<Token, Error>;
     fn next(&mut self) -> Option<Self::Item> {
         if self.error {
