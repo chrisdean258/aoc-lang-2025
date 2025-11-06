@@ -12,8 +12,8 @@ pub enum TokenKind {
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct Token {
-    offset: SrcOffset,
-    kind: TokenKind,
+    pub offset: SrcOffset,
+    pub kind: TokenKind,
 }
 
 impl Token {
