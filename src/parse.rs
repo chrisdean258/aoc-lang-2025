@@ -5,8 +5,7 @@ use crate::{
     lex::Lexer,
     token::{Token, TokenKind},
 };
-use itertools::PutBack;
-use std::path::Path;
+use std::iter::Peekable;
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -28,78 +27,109 @@ pub enum Expr {
     BinOp(Box<Expr>, Token, Box<Expr>),
 }
 
-#[derive(Debug, Eq, PartialEq, Ord, PartialOrd, Clone, Copy)]
-enum Precedence {
-    Lowest,
-    Plus,
-    Times,
-    Highest,
-}
-
-impl Precedence {
-    const fn next(self) -> Self {
-        match self {
-            Self::Lowest => Self::Plus,
-            Self::Plus => Self::Times,
-            Self::Times | Self::Highest => Self::Highest,
-        }
-    }
-
-    fn less_or_eq(self, kind: &TokenKind) -> bool {
-        match (self, kind) {
-            (Self::Lowest | Self::Plus, _) => true,
-            (Self::Times, TokenKind::Plus) => false,
-            (Self::Times, TokenKind::Star) => true,
-            (Self::Highest, TokenKind::Star) => true,
-            _ => todo!("Operator precedence"),
-        }
+type Precedence = i64;
+const fn predence_of(k: TokenKind) -> Precedence {
+    match k {
+        TokenKind::Plus | TokenKind::Minus => 10,
+        TokenKind::Star | TokenKind::Slash => 20,
+        _ => -1,
     }
 }
 
-pub fn parse<P: AsRef<Path>>(lexer: &mut Lexer<P>) -> Result<Tree, A25Error> {
+pub fn parse(lexer: Lexer) -> Result<Tree, A25Error> {
+    let mut lexer = lexer.peekable();
     let tree = Tree {
-        exprs: parse_exprs(lexer)?,
+        exprs: parse_exprs(&mut lexer)?,
     };
     Ok(tree)
 }
 
-fn parse_exprs<P: AsRef<Path>>(_lexer: &mut Lexer<P>) -> Result<Vec<Expr>, A25Error> {
-    let exprs = Vec::new();
+fn parse_exprs(lexer: &mut Peekable<Lexer>) -> Result<Vec<Expr>, A25Error> {
+    let mut exprs = Vec::new();
+    while lexer.peek().is_some() {
+        exprs.push(parse_expr(lexer)?);
+    }
     Ok(exprs)
 }
 
-fn parse_primary<P: AsRef<Path>>(lexer: &mut PutBack<Lexer<P>>) -> Result<Expr, A25Error> {
+fn parse_expr(lexer: &mut Peekable<Lexer>) -> Result<Expr, A25Error> {
+    let lhs = parse_primary(lexer)?;
+    parse_expr_1(lexer, lhs, 0)
+}
+
+fn parse_primary(lexer: &mut Peekable<Lexer>) -> Result<Expr, A25Error> {
     let Some(token) = lexer.next() else {
         return Err(Error::UnexpectedEOF("primary expression").into());
     };
     let token = token?;
     Ok(match token.kind {
-        TokenKind::Identifier => Expr::Value(token),
-        TokenKind::Integer => Expr::Value(token),
-        TokenKind::Float => Expr::Value(token),
+        TokenKind::Identifier | TokenKind::Integer | TokenKind::Float => Expr::Value(token),
         _ => return Err(Error::UnexpectedToken(token, "primary expression").into()),
     })
 }
 
-fn parse_expr<P: AsRef<Path>>(
-    lexer: &mut PutBack<Lexer<P>>,
-    lhs: Expr,
-    precedence: Precedence,
+fn parse_expr_1(
+    lexer: &mut Peekable<Lexer>,
+    mut lhs: Expr,
+    min_precedence: Precedence,
 ) -> Result<Expr, A25Error> {
-    if precedence == Precedence::Highest {
-        return parse_primary(lexer);
-    }
-    let Some(mut lookahead) = lexer.next() else {
+    let Some(lookahead_) = lexer.peek() else {
         return Ok(lhs);
     };
-    let mut op = lookahead?;
-    while precedence.less_or_eq(&op.kind) {
-        let rhs = parse_primary(lexer)?;
-        lookahead = match lexer.next() {
-            Some(t) => t,
-            _ => todo!(),
+    let mut lookahead = lookahead_.clone()?;
+    let mut op = lookahead;
+    let mut op_pres = predence_of(op.kind);
+    while op_pres >= min_precedence {
+        let _ = lexer.next();
+        let mut rhs = parse_primary(lexer)?;
+        let Some(lookahead_) = lexer.peek() else {
+            return Ok(Expr::BinOp(Box::new(lhs), op, Box::new(rhs)));
+        };
+        lookahead = lookahead_.clone()?;
+        let mut lap = predence_of(lookahead.kind);
+        while lap > op_pres {
+            rhs = parse_expr_1(lexer, rhs, op_pres + i64::from(lap > op_pres))?;
+            let Some(lookahead_) = lexer.peek() else {
+                return Ok(Expr::BinOp(Box::new(lhs), op, Box::new(rhs)));
+            };
+            lookahead = lookahead_.clone()?;
+            lap = predence_of(lookahead.kind);
         }
-        while lookahead?.kind
+        lhs = Expr::BinOp(Box::new(lhs), op, Box::new(rhs));
+        op = lookahead;
+        op_pres = predence_of(op.kind);
     }
-    todo!()
+    Ok(lhs)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn num() {
+        let lexer = Lexer::new("test", "1");
+        let tree = parse(lexer);
+        assert!(matches!(tree, Ok(Tree { .. },)));
+        assert!(matches!(
+            &tree.expect("already checked").exprs[..],
+            [Expr::Value(Token {
+                offset: 0,
+                kind: TokenKind::Integer,
+            })]
+        ));
+    }
+
+    #[test]
+    fn plus() {
+        let lexer = Lexer::new("test", "1 + 1");
+        let tree = parse(lexer);
+        assert_eq!(format!("{tree:?}"), "Ok(Tree { exprs: [BinOp(Value(Token { offset: 0, kind: Integer }), Token { offset: 2, kind: Plus }, Value(Token { offset: 4, kind: Integer }))] })");
+    }
+    #[test]
+    fn plus_times() {
+        let lexer = Lexer::new("test", "1 + 1 * 1");
+        let tree = parse(lexer);
+        assert_eq!(format!("{tree:?}"), "Ok(Tree { exprs: [BinOp(Value(Token { offset: 0, kind: Integer }), Token { offset: 2, kind: Plus }, BinOp(Value(Token { offset: 4, kind: Integer }), Token { offset: 6, kind: Star }, Value(Token { offset: 8, kind: Integer })))] })");
+    }
 }

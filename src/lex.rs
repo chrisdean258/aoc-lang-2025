@@ -8,8 +8,8 @@ use std::path::Path;
 use thiserror::Error;
 
 #[derive(Debug, Clone)]
-pub struct Lexer<'a, P: AsRef<Path>> {
-    filename: P,
+pub struct Lexer<'a> {
+    filename: String,
     src: &'a str,
     offset: usize,
     error: bool,
@@ -25,12 +25,12 @@ pub enum Error {
     UnexpectedEOF(SrcLocation, &'static str),
 }
 
-impl<'a, P: AsRef<Path>> Lexer<'a, P> {
+impl<'a> Lexer<'a> {
     #[must_use]
-    pub const fn new(filename: P, src: &'a str) -> Self {
+    pub fn new<P: AsRef<Path>>(filename: P, src: &'a str) -> Self {
         Self {
             src,
-            filename,
+            filename: filename.as_ref().to_string_lossy().into(),
             offset: 0,
             error: false,
         }
@@ -57,21 +57,13 @@ impl<'a, P: AsRef<Path>> Lexer<'a, P> {
         };
         let Some(poss_digit) = chars.next() else {
             return Err(Error::UnexpectedEOF(
-                location::resolve(
-                    self.offset + 2,
-                    self.filename.as_ref().to_string_lossy().into(),
-                    self.src.into(),
-                ),
+                location::resolve(self.offset + 2, self.filename.clone(), self.src.into()),
                 "lexing number",
             ));
         };
         if !poss_digit.is_digit(radix) {
             return Err(Error::InvalidIntegerDigit(
-                location::resolve(
-                    self.offset + 2,
-                    self.filename.as_ref().to_string_lossy().into(),
-                    self.src.into(),
-                ),
+                location::resolve(self.offset + 2, self.filename.clone(), self.src.into()),
                 poss_digit,
                 radix,
             ));
@@ -131,7 +123,7 @@ impl<'a, P: AsRef<Path>> Lexer<'a, P> {
     }
 }
 
-impl<P: AsRef<Path>> Iterator for Lexer<'_, P> {
+impl Iterator for Lexer<'_> {
     type Item = Result<Token, Error>;
     fn next(&mut self) -> Option<Self::Item> {
         if self.error {

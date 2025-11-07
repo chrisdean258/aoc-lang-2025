@@ -1,5 +1,5 @@
 use crate::location::SrcOffset;
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum TokenKind {
     Identifier,
     Plus,
@@ -10,7 +10,7 @@ pub enum TokenKind {
     Float,
 }
 
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub struct Token {
     pub offset: SrcOffset,
     pub kind: TokenKind,
