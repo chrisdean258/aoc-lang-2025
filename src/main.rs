@@ -1,6 +1,7 @@
 use std::{env, process::exit};
 pub mod a25;
 pub mod error;
+pub mod interpret;
 pub mod lex;
 pub mod location;
 pub mod parse;

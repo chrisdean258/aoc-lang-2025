@@ -5,7 +5,6 @@ use crate::{
     lex::Lexer,
     token::{Token, TokenKind},
 };
-use std::iter::Peekable;
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -18,33 +17,38 @@ pub enum Error {
 
 #[derive(Debug)]
 pub struct Tree {
-    exprs: Vec<Expr>,
+    pub exprs: Vec<Expr>,
 }
 
 #[derive(Debug)]
 pub enum Expr {
-    Value(Token),
+    Value(i64),
+    Variable(String),
     BinOp(Box<Expr>, Token, Box<Expr>),
 }
 
 type Precedence = i64;
 const fn predence_of(k: TokenKind) -> Precedence {
     match k {
-        TokenKind::Plus | TokenKind::Minus => 10,
-        TokenKind::Star | TokenKind::Slash => 20,
+        TokenKind::Equal => 10,
+        TokenKind::Plus | TokenKind::Minus => 20,
+        TokenKind::Star | TokenKind::Slash => 30,
         _ => -1,
     }
 }
 
-pub fn parse(lexer: Lexer) -> Result<Tree, A25Error> {
-    let mut lexer = lexer.peekable();
+const fn is_left_associative(k: TokenKind) -> bool {
+    matches!(k, TokenKind::Equal)
+}
+
+pub fn parse(mut lexer: Lexer) -> Result<Tree, A25Error> {
     let tree = Tree {
         exprs: parse_exprs(&mut lexer)?,
     };
     Ok(tree)
 }
 
-fn parse_exprs(lexer: &mut Peekable<Lexer>) -> Result<Vec<Expr>, A25Error> {
+fn parse_exprs(lexer: &mut Lexer) -> Result<Vec<Expr>, A25Error> {
     let mut exprs = Vec::new();
     while lexer.peek().is_some() {
         exprs.push(parse_expr(lexer)?);
@@ -52,24 +56,44 @@ fn parse_exprs(lexer: &mut Peekable<Lexer>) -> Result<Vec<Expr>, A25Error> {
     Ok(exprs)
 }
 
-fn parse_expr(lexer: &mut Peekable<Lexer>) -> Result<Expr, A25Error> {
+fn parse_expr(lexer: &mut Lexer) -> Result<Expr, A25Error> {
     let lhs = parse_primary(lexer)?;
     parse_expr_1(lexer, lhs, 0)
 }
 
-fn parse_primary(lexer: &mut Peekable<Lexer>) -> Result<Expr, A25Error> {
-    let Some(token) = lexer.next() else {
-        return Err(Error::UnexpectedEOF("primary expression").into());
-    };
-    let token = token?;
+macro_rules! must {
+    ($lexer:ident, $context:expr) => {{
+        let Some(token) = $lexer.next() else {
+            return Err(Error::UnexpectedEOF($context).into());
+        };
+        token
+    }};
+}
+
+fn parse_primary(lexer: &mut Lexer) -> Result<Expr, A25Error> {
+    let token = must!(lexer, "primary expression")?;
     Ok(match token.kind {
-        TokenKind::Identifier | TokenKind::Integer | TokenKind::Float => Expr::Value(token),
+        TokenKind::Identifier => Expr::Variable(token.id(lexer).into()),
+        TokenKind::Float => {
+            todo!()
+        }
+        TokenKind::Integer => Expr::Value(token.int(lexer)),
+        TokenKind::OParen => {
+            let expr = parse_expr(lexer)?;
+            let token = must!(lexer, "parenthesizes expression")?;
+            if !matches!(token.kind, TokenKind::CParen) {
+                return Err(
+                    Error::UnexpectedToken(token, "end of parenthesised expression").into(),
+                );
+            }
+            expr
+        }
         _ => return Err(Error::UnexpectedToken(token, "primary expression").into()),
     })
 }
 
 fn parse_expr_1(
-    lexer: &mut Peekable<Lexer>,
+    lexer: &mut Lexer,
     mut lhs: Expr,
     min_precedence: Precedence,
 ) -> Result<Expr, A25Error> {
@@ -87,7 +111,7 @@ fn parse_expr_1(
         };
         lookahead = lookahead_.clone()?;
         let mut lap = predence_of(lookahead.kind);
-        while lap > op_pres {
+        while lap > op_pres || (is_left_associative(op.kind) && lap >= op_pres) {
             rhs = parse_expr_1(lexer, rhs, op_pres + i64::from(lap > op_pres))?;
             let Some(lookahead_) = lexer.peek() else {
                 return Ok(Expr::BinOp(Box::new(lhs), op, Box::new(rhs)));
@@ -113,10 +137,7 @@ mod tests {
         assert!(matches!(tree, Ok(Tree { .. },)));
         assert!(matches!(
             &tree.expect("already checked").exprs[..],
-            [Expr::Value(Token {
-                offset: 0,
-                kind: TokenKind::Integer,
-            })]
+            [Expr::Value(1)]
         ));
     }
 
@@ -124,12 +145,26 @@ mod tests {
     fn plus() {
         let lexer = Lexer::new("test", "1 + 1");
         let tree = parse(lexer);
-        assert_eq!(format!("{tree:?}"), "Ok(Tree { exprs: [BinOp(Value(Token { offset: 0, kind: Integer }), Token { offset: 2, kind: Plus }, Value(Token { offset: 4, kind: Integer }))] })");
+        assert_eq!(format!("{tree:?}"), "Ok(Tree { exprs: [BinOp(Value(1), Token { offset: 2, len: 1, kind: Plus }, Value(1))] })");
     }
     #[test]
     fn plus_times() {
         let lexer = Lexer::new("test", "1 + 1 * 1");
         let tree = parse(lexer);
-        assert_eq!(format!("{tree:?}"), "Ok(Tree { exprs: [BinOp(Value(Token { offset: 0, kind: Integer }), Token { offset: 2, kind: Plus }, BinOp(Value(Token { offset: 4, kind: Integer }), Token { offset: 6, kind: Star }, Value(Token { offset: 8, kind: Integer })))] })");
+        assert_eq!(format!("{tree:?}"), "Ok(Tree { exprs: [BinOp(Value(1), Token { offset: 2, len: 1, kind: Plus }, BinOp(Value(1), Token { offset: 6, len: 1, kind: Star }, Value(1)))] })");
+    }
+
+    #[test]
+    fn parens() {
+        let lexer = Lexer::new("test", "1 * (1 + 1)");
+        let tree = parse(lexer);
+        assert_eq!(format!("{tree:?}"), "Ok(Tree { exprs: [BinOp(Value(1), Token { offset: 2, len: 1, kind: Star }, BinOp(Value(1), Token { offset: 7, len: 1, kind: Plus }, Value(1)))] })");
+    }
+
+    #[test]
+    fn left_associative_eq() {
+        let lexer = Lexer::new("test", "a = b = c");
+        let tree = parse(lexer);
+        assert_eq!(format!("{tree:?}"), "Ok(Tree { exprs: [BinOp(Variable(\"a\"), Token { offset: 2, len: 1, kind: Equal }, BinOp(Variable(\"b\"), Token { offset: 6, len: 1, kind: Equal }, Variable(\"c\")))] })");
     }
 }

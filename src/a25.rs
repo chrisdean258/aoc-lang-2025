@@ -10,6 +10,6 @@ pub fn run_file<P: AsRef<Path>>(path: P) -> Result<(), Error> {
 pub fn run<P: AsRef<Path>>(path: P, src: &str) -> Result<(), Error> {
     let lexer = lex::Lexer::new(path, src);
     let tree = parse::parse(lexer)?;
-    println!("{tree:?}");
+    println!("{tree:#?}");
     Ok(())
 }

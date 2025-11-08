@@ -10,9 +10,10 @@ use thiserror::Error;
 #[derive(Debug, Clone)]
 pub struct Lexer<'a> {
     filename: String,
-    src: &'a str,
+    pub src: &'a str,
     offset: usize,
     error: bool,
+    hold: Option<Result<Token, Error>>,
 }
 
 #[derive(Debug, Clone, Error)]
@@ -33,7 +34,15 @@ impl<'a> Lexer<'a> {
             filename: filename.as_ref().to_string_lossy().into(),
             offset: 0,
             error: false,
+            hold: None,
         }
+    }
+
+    pub fn peek(&mut self) -> Option<&Result<Token, Error>> {
+        if self.hold.is_none() {
+            self.hold = self.next();
+        }
+        self.hold.as_ref()
     }
 
     fn lex_number(&self) -> Result<(usize, TokenKind), Error> {
@@ -109,6 +118,9 @@ impl<'a> Lexer<'a> {
             '*' => (1, TokenKind::Star),
             '-' => (1, TokenKind::Minus),
             '/' => (1, TokenKind::Slash),
+            '=' => (1, TokenKind::Equal),
+            '(' => (1, TokenKind::OParen),
+            ')' => (1, TokenKind::CParen),
             '1'..='9' => Self::lex_number_with_radix(unlexed, 10),
             '0' => match self.lex_number() {
                 Ok(v) => v,
@@ -117,7 +129,7 @@ impl<'a> Lexer<'a> {
             _ => return None,
         };
 
-        let rv = Token::new(self.offset, tk);
+        let rv = Token::new(self.offset, len, tk);
         self.offset += len;
         Some(Ok(rv))
     }
@@ -129,9 +141,13 @@ impl Iterator for Lexer<'_> {
         if self.error {
             return None;
         }
-        let val = self.lex_single_token();
-        self.error = matches!(val, Some(Err(_)));
-        val
+        if self.hold.is_some() {
+            self.hold.take()
+        } else {
+            let val = self.lex_single_token();
+            self.error = matches!(val, Some(Err(_)));
+            val
+        }
     }
 }
 
@@ -143,7 +159,7 @@ mod tests {
     fn id() {
         let lexer = Lexer::new("test", "test");
         let tokens = lexer.collect::<Result<Vec<_>, _>>().expect("Lexing Error");
-        assert_eq!(vec![Token::new(0, TokenKind::Identifier)], tokens);
+        assert_eq!(vec![Token::new(0, 4, TokenKind::Identifier)], tokens);
     }
 
     #[test]
@@ -152,8 +168,8 @@ mod tests {
         let tokens = lexer.collect::<Result<Vec<_>, _>>().expect("Lexing Error");
         assert_eq!(
             vec![
-                Token::new(0, TokenKind::Identifier),
-                Token::new(6, TokenKind::Identifier)
+                Token::new(0, 5, TokenKind::Identifier),
+                Token::new(6, 5, TokenKind::Identifier)
             ],
             tokens
         );
@@ -165,9 +181,9 @@ mod tests {
         let tokens = lexer.collect::<Result<Vec<_>, _>>().expect("Lexing Error");
         assert_eq!(
             vec![
-                Token::new(0, TokenKind::Identifier),
-                Token::new(6, TokenKind::Identifier),
-                Token::new(13, TokenKind::Identifier)
+                Token::new(0, 5, TokenKind::Identifier),
+                Token::new(6, 6, TokenKind::Identifier),
+                Token::new(13, 5, TokenKind::Identifier)
             ],
             tokens
         );
@@ -179,9 +195,9 @@ mod tests {
         let tokens = lexer.collect::<Result<Vec<_>, _>>().expect("Lexing Error");
         assert_eq!(
             vec![
-                Token::new(0, TokenKind::Identifier),
-                Token::new(6, TokenKind::Plus),
-                Token::new(8, TokenKind::Identifier)
+                Token::new(0, 5, TokenKind::Identifier),
+                Token::new(6, 1, TokenKind::Plus),
+                Token::new(8, 5, TokenKind::Identifier)
             ],
             tokens
         );
@@ -193,9 +209,9 @@ mod tests {
         let tokens = lexer.collect::<Result<Vec<_>, _>>().expect("Lexing Error");
         assert_eq!(
             vec![
-                Token::new(0, TokenKind::Integer),
-                Token::new(2, TokenKind::Plus),
-                Token::new(4, TokenKind::Float)
+                Token::new(0, 1, TokenKind::Integer),
+                Token::new(2, 1, TokenKind::Plus),
+                Token::new(4, 3, TokenKind::Float)
             ],
             tokens
         );
@@ -204,7 +220,7 @@ mod tests {
     fn hex() {
         let lexer = Lexer::new("test", "0xff");
         let tokens = lexer.collect::<Result<Vec<_>, _>>().expect("Lexing Error");
-        assert_eq!(vec![Token::new(0, TokenKind::Integer),], tokens);
+        assert_eq!(vec![Token::new(0, 4, TokenKind::Integer),], tokens);
     }
 
     #[test]
@@ -213,9 +229,9 @@ mod tests {
         let tokens = lexer.collect::<Result<Vec<_>, _>>().expect("Lexing Error");
         assert_eq!(
             vec![
-                Token::new(0, TokenKind::Integer),
-                Token::new(5, TokenKind::Plus),
-                Token::new(7, TokenKind::Identifier),
+                Token::new(0, 4, TokenKind::Integer),
+                Token::new(5, 1, TokenKind::Plus),
+                Token::new(7, 2, TokenKind::Identifier),
             ],
             tokens
         );
