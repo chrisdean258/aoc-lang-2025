@@ -6,6 +6,7 @@ pub mod lex;
 pub mod location;
 pub mod parse;
 pub mod token;
+pub mod value;
 
 fn usage() -> ! {
     eprintln!(
